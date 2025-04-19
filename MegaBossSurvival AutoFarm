@@ -1,0 +1,146 @@
+-- Ultimate Admin Round Godmode with Failsafes and Idempotency
+-- Kinda.
+_G._GodmodeScriptLoaded = nil
+task.wait(0.1)
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
+local UserInput    = game:GetService("UserInputService")
+local VirtualUser  = game:GetService("VirtualUser")
+local ReplicatedRS = game:GetService("ReplicatedStorage").Events.Game
+
+local player         = Players.LocalPlayer
+local guiName        = "GodmodeToggleGui"
+local buttonName     = "ToggleButton"
+local partName       = "GodmodeAnchorPart"
+local globalFlagKey  = "_GodmodeScriptLoaded"
+local heartbeatConn  = nil
+
+-- Prevent double-execution
+if _G[globalFlagKey] then
+    return
+end
+_G[globalFlagKey] = true
+
+-- Remove existing GUI if present
+local existingGui = player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild(guiName)
+if existingGui then
+    existingGui:Destroy()
+end
+
+-- Remove existing part if present
+local oldPart = workspace:FindFirstChild(partName)
+if oldPart then
+    oldPart:Destroy()
+end
+
+-- Destroy Barrier safely
+if workspace:FindFirstChild("Barrier") then
+    workspace.Barrier:Destroy()
+end
+
+-- Create teleport anchor part
+local part = Instance.new("Part")
+part.Name         = partName
+part.Parent       = workspace
+part.Size         = Vector3.new(50, 50, 50)
+part.CFrame       = CFrame.new(382, 640, -880)
+part.Anchored     = true
+part.CanCollide   = true
+part.Transparency = 1
+
+-- Create persistent GUI
+local gui = Instance.new("ScreenGui")
+gui.Name   = guiName
+gui.Parent = player:WaitForChild("PlayerGui")
+
+-- Create toggle button
+local toggleButton = Instance.new("TextButton")
+toggleButton.Name             = buttonName
+toggleButton.Parent           = gui
+toggleButton.Text             = "Godmode: ON"
+toggleButton.Size             = UDim2.new(0, 140, 0, 40)
+toggleButton.Position         = UDim2.new(0, 20, 0, 20)
+toggleButton.BackgroundColor3 = Color3.fromRGB(50, 255, 100)
+toggleButton.TextColor3       = Color3.new(0, 0, 0)
+toggleButton.AutoButtonColor  = false
+toggleButton.Active           = true
+
+-- Draggable setup
+local dragging, dragInput, dragStart, startPos
+local function updateGuiPosition(input)
+    local delta = input.Position - dragStart
+    toggleButton.Position = UDim2.new(
+        startPos.X.Scale,
+        startPos.X.Offset + delta.X,
+        startPos.Y.Scale,
+        startPos.Y.Offset + delta.Y
+    )
+end
+
+toggleButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging  = true
+        dragStart = input.Position
+        startPos  = toggleButton.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+toggleButton.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+UserInput.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        updateGuiPosition(input)
+    end
+end)
+
+-- Toggle behavior
+local godmodeEnabled = true
+toggleButton.MouseButton1Click:Connect(function()
+    godmodeEnabled = not godmodeEnabled
+    toggleButton.Text = "Godmode: " .. (godmodeEnabled and "ON" or "OFF")
+    toggleButton.BackgroundColor3 = godmodeEnabled
+        and Color3.fromRGB(50, 255, 100)
+        or Color3.fromRGB(200, 50, 50)
+end)
+
+-- Anti-idle
+player.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+end)
+
+-- Start or restart the godmode loop
+local function startGodmodeLoop()
+    -- Safely disconnect existing connection
+    if heartbeatConn then
+        heartbeatConn:Disconnect()
+        heartbeatConn = nil
+    end
+
+    -- Connect new Heartbeat
+    heartbeatConn = RunService.Heartbeat:Connect(function()
+        if godmodeEnabled and player.Character 
+           and player.Character:FindFirstChild("HumanoidRootPart") then
+            player.Character.HumanoidRootPart.CFrame = part.CFrame
+            ReplicatedRS:FireServer("BossSkip", "Yes")
+        end
+    end)
+end
+
+-- Initialize loop on load
+startGodmodeLoop()
+
+-- Reinitialize on each respawn
+player.CharacterAdded:Connect(function(character)
+    local h = character:WaitForChild("HumanoidRootPart")
+    startGodmodeLoop()
+end)
