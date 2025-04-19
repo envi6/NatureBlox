@@ -1,5 +1,10 @@
 -- Ultimate Admin Round Godmode with Failsafes and Idempotency
 -- Kinda.
+
+-- CONFIG --
+local webhookUrl = "YOUR_DISCORD_WEBHOOK_URL"
+
+-- ------ --
 _G._GodmodeScriptLoaded = nil
 task.wait(0.1)
 local Players      = game:GetService("Players")
@@ -7,6 +12,7 @@ local RunService   = game:GetService("RunService")
 local UserInput    = game:GetService("UserInputService")
 local VirtualUser  = game:GetService("VirtualUser")
 local ReplicatedRS = game:GetService("ReplicatedStorage").Events.Game
+local HttpService = game:GetService("HttpService")
 
 local player         = Players.LocalPlayer
 local guiName        = "GodmodeToggleGui"
@@ -139,8 +145,24 @@ end
 -- Initialize loop on load
 startGodmodeLoop()
 
+local function sendDeathWebhook(playerName)
+    local payload = {
+        ["content"] = playerName .. " has met their doom! 💀",
+        ["username"] = "GameNotifier"
+    }
+    local jsonData = HttpService:JSONEncode(payload)
+    -- Default content type is ApplicationJson
+    HttpService:PostAsync(webhookUrl, jsonData)
+end
+
 -- Reinitialize on each respawn
 player.CharacterAdded:Connect(function(character)
     local h = character:WaitForChild("HumanoidRootPart")
+    local humanoid = character:WaitForChild("Humanoid")
     startGodmodeLoop()
+
+    -- Inside humanoid.Died:
+    humanoid.Died:Connect(function()
+        sendDeathWebhook(player.Name)
+    end)
 end)
