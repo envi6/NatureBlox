@@ -2,7 +2,7 @@
 -- Kinda.
 
 -- CONFIG --
-local webhookUrl = "YOUR_DISCORD_WEBHOOK_URL"
+local webhookUrl = ... or nil
 
 -- ------ --
 _G._GodmodeScriptLoaded = nil
