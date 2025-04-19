@@ -7,6 +7,7 @@ local webhookUrl = "YOUR_DISCORD_WEBHOOK_URL"
 -- ------ --
 _G._GodmodeScriptLoaded = nil
 task.wait(0.1)
+print(...)
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
 local UserInput    = game:GetService("UserInputService")
