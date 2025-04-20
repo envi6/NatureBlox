@@ -1,52 +1,103 @@
--- Ultimate Admin Round Godmode with Failsafes and Idempotency
+-- Ultimate Admin Round Godmode with Failsafes, Idempotency, and Webhook Prompt
 -- Kinda.
 
 -- CONFIG --
-local webhookUrl = ... or nil
+-- (No hard‑coded webhook here; the GUI will collect it)
+local webhookUrl
 
--- ------ --
+-- GLOBAL FLAG TO PREVENT DOUBLE‑EXECUTION
 _G._GodmodeScriptLoaded = nil
-
 task.wait(0.1)
 
+-- SERVICES
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
 local UserInput    = game:GetService("UserInputService")
 local VirtualUser  = game:GetService("VirtualUser")
 local ReplicatedRS = game:GetService("ReplicatedStorage").Events.Game
-local HttpService = game:GetService("HttpService")
+local HttpService  = game:GetService("HttpService")
 
-local player         = Players.LocalPlayer
-local guiName        = "GodmodeToggleGui"
-local buttonName     = "ToggleButton"
-local partName       = "GodmodeAnchorPart"
-local globalFlagKey  = "_GodmodeScriptLoaded"
-local heartbeatConn  = nil
+-- LOCAL REFERENCES
+local player       = Players.LocalPlayer
+local guiName      = "GodmodeToggleGui"
+local promptName   = "WebhookPromptGui"
+local buttonName   = "ToggleButton"
+local partName     = "GodmodeAnchorPart"
+local globalFlag   = "_GodmodeScriptLoaded"
+local heartbeatConn
 
--- Prevent double-execution
-if _G[globalFlagKey] then
-    return
+-- PREVENT DOUBLE‑EXECUTION
+if _G[globalFlag] then return end
+_G[globalFlag] = true
+
+-- FUNCTION: PROMPT FOR WEBHOOK URL
+local function promptForWebhook()
+    local promptGui = Instance.new("ScreenGui")
+    promptGui.Name   = promptName
+    promptGui.Parent = player:WaitForChild("PlayerGui")
+
+    local frame = Instance.new("Frame")
+    frame.Size     = UDim2.new(0, 300, 0, 140)
+    frame.Position = UDim2.new(0.5, -150, 0.5, -70)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    frame.BorderSizePixel  = 0
+    frame.Parent   = promptGui
+
+    local label = Instance.new("TextLabel")
+    label.Text       = "Enter Discord Webhook URL:"
+    label.TextColor3 = Color3.new(1,1,1)
+    label.BackgroundTransparency = 1
+    label.Size       = UDim2.new(1, -20, 0, 30)
+    label.Position   = UDim2.new(0, 10, 0, 10)
+    label.Parent     = frame
+
+    local textBox = Instance.new("TextBox")
+    textBox.PlaceholderText = "https://discord.com/api/..."
+    textBox.ClearTextOnFocus = true
+    textBox.TextColor3      = Color3.new(0,0,0)
+    textBox.BackgroundColor3 = Color3.new(1,1,1)
+    textBox.Size         = UDim2.new(1, -20, 0, 30)
+    textBox.Position     = UDim2.new(0, 10, 0, 50)
+    textBox.Parent       = frame
+    textBox:CaptureFocus()
+
+    local enterBtn = Instance.new("TextButton")
+    enterBtn.Text       = "Enter"
+    enterBtn.TextColor3 = Color3.new(1,1,1)
+    enterBtn.BackgroundColor3 = Color3.fromRGB(50, 205, 50)
+    enterBtn.Size       = UDim2.new(0.5, -15, 0, 30)
+    enterBtn.Position   = UDim2.new(0, 10, 1, -40)
+    enterBtn.Parent     = frame
+
+    local skipBtn = Instance.new("TextButton")
+    skipBtn.Text        = "Skip"
+    skipBtn.TextColor3  = Color3.new(1,1,1)
+    skipBtn.BackgroundColor3 = Color3.fromRGB(205, 50, 50)
+    skipBtn.Size        = UDim2.new(0.5, -15, 0, 30)
+    skipBtn.Position    = UDim2.new(0.5, 5, 1, -40)
+    skipBtn.Parent      = frame
+
+    enterBtn.Activated:Connect(function()
+        webhookUrl = textBox.Text ~= "" and textBox.Text or nil
+        promptGui:Destroy()
+    end)
+    skipBtn.Activated:Connect(function()
+        webhookUrl = nil
+        promptGui:Destroy()
+    end)
 end
-_G[globalFlagKey] = true
 
--- Remove existing GUI if present
+-- SHOW PROMPT AT SCRIPT START --
+promptForWebhook()
+
+-- CLEANUP ANY EXISTING GUI OR PARTS --
 local existingGui = player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild(guiName)
-if existingGui then
-    existingGui:Destroy()
-end
-
--- Remove existing part if present
+if existingGui then existingGui:Destroy() end
 local oldPart = workspace:FindFirstChild(partName)
-if oldPart then
-    oldPart:Destroy()
-end
+if oldPart then oldPart:Destroy() end
+if workspace:FindFirstChild("Barrier") then workspace.Barrier:Destroy() end
 
--- Destroy Barrier safely
-if workspace:FindFirstChild("Barrier") then
-    workspace.Barrier:Destroy()
-end
-
--- Create teleport anchor part
+-- CREATE TELEPORT ANCHOR PART
 local part = Instance.new("Part")
 part.Name         = partName
 part.Parent       = workspace
@@ -56,12 +107,11 @@ part.Anchored     = true
 part.CanCollide   = true
 part.Transparency = 1
 
--- Create persistent GUI
+-- CREATE GODMODE TOGGLE GUI
 local gui = Instance.new("ScreenGui")
 gui.Name   = guiName
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- Create toggle button
 local toggleButton = Instance.new("TextButton")
 toggleButton.Name             = buttonName
 toggleButton.Parent           = gui
@@ -73,7 +123,7 @@ toggleButton.TextColor3       = Color3.new(0, 0, 0)
 toggleButton.AutoButtonColor  = false
 toggleButton.Active           = true
 
--- Draggable setup
+-- MAKE THE BUTTON DRAGGABLE
 local dragging, dragInput, dragStart, startPos
 local function updateGuiPosition(input)
     local delta = input.Position - dragStart
@@ -97,20 +147,18 @@ toggleButton.InputBegan:Connect(function(input)
         end)
     end
 end)
-
 toggleButton.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement then
         dragInput = input
     end
 end)
-
 UserInput.InputChanged:Connect(function(input)
     if input == dragInput and dragging then
         updateGuiPosition(input)
     end
 end)
 
--- Toggle behavior
+-- GODMODE TOGGLE LOGIC
 local godmodeEnabled = true
 toggleButton.MouseButton1Click:Connect(function()
     godmodeEnabled = not godmodeEnabled
@@ -120,21 +168,18 @@ toggleButton.MouseButton1Click:Connect(function()
         or Color3.fromRGB(200, 50, 50)
 end)
 
--- Anti-idle
+-- ANTI‑IDLE
 player.Idled:Connect(function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new())
 end)
 
--- Start or restart the godmode loop
+-- START OR RESTART THE GODMODE LOOP
 local function startGodmodeLoop()
-    -- Safely disconnect existing connection
     if heartbeatConn then
         heartbeatConn:Disconnect()
         heartbeatConn = nil
     end
-
-    -- Connect new Heartbeat
     heartbeatConn = RunService.Heartbeat:Connect(function()
         if godmodeEnabled and player.Character 
            and player.Character:FindFirstChild("HumanoidRootPart") then
@@ -143,27 +188,23 @@ local function startGodmodeLoop()
         end
     end)
 end
-
--- Initialize loop on load
 startGodmodeLoop()
 
+-- FUNCTION TO SEND DEATH WEBHOOK
 local function sendDeathWebhook(playerName)
+    if not webhookUrl then return end
     local payload = {
-        ["content"] = playerName .. " has met their doom! 💀",
-        ["username"] = "GameNotifier"
+        content  = playerName .. " has met their doom! 💀",
+        username = "GameNotifier"
     }
-    local jsonData = HttpService:JSONEncode(payload)
-    -- Default content type is ApplicationJson
-    HttpService:PostAsync(webhookUrl, jsonData)
+    local data = HttpService:JSONEncode(payload)
+    HttpService:PostAsync(webhookUrl, data, Enum.HttpContentType.ApplicationJson)
 end
 
--- Reinitialize on each respawn
-player.CharacterAdded:Connect(function(character)
-    local h = character:WaitForChild("HumanoidRootPart")
+-- ON CHARACTER SPAWN, SET UP DEATH HANDLER
+Players.LocalPlayer.CharacterAdded:Connect(function(character)
     local humanoid = character:WaitForChild("Humanoid")
     startGodmodeLoop()
-
-    -- Inside humanoid.Died:
     humanoid.Died:Connect(function()
         sendDeathWebhook(player.Name)
     end)
